@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const inventoryRoute = require('./routes/inventoryRoutes');
@@ -11,7 +13,7 @@ const app = express();
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' 
       ? 'https://your-vercel-domain.vercel.app' 
-      : 'http://localhost:3000'
+      : 'http://localhost:4000'
   }));
 app.use(express.json());
 
