@@ -11,10 +11,10 @@ const userRoutes = require('./routes/userRoutes');
 const app = express();
 
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' 
-      ? 'https://your-vercel-domain.vercel.app' 
-      : 'http://localhost:4000'
-  }));
+    origin: ['https://inventory-management-client-iota.vercel.app', 'http://localhost:3000'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 app.use('/api/inventory', inventoryRoute);
