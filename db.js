@@ -62,6 +62,10 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 handler_name TEXT NOT NULL,
                 role TEXT NOT NULL 
             )`);
+            db.run(`CREATE TABLE IF NOT EXISTS manufacturer (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                manufacturer TEXT NOT NULL UNIQUE
+            )`);
         });
     }
 });

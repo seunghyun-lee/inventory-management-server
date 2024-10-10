@@ -7,6 +7,7 @@ const transactionRoute = require('./routes/transactionRoutes');
 const inboundHistory = require('./routes/inboundhistoryRoutes');
 const outboundHistory = require('./routes/outboundhistoryRoutes');
 const userRoutes = require('./routes/userRoutes');
+const manufacturerRoutes = require('./routes/manufacturerRoutes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/transactions', transactionRoute);
 app.use('/api/inbound-history', inboundHistory);
 app.use('/api/outbound-history', outboundHistory);
 app.use('/api/users', userRoutes);
+app.use('/api/manufacturers', manufacturerRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -62,4 +62,28 @@ router.post('/', async (req, res) => {
     }
 });
 
+router.delete('/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            // items 테이블에서 항목 삭제
+            await db.run('DELETE FROM items WHERE id = ?', [id]);
+
+            // inbound 테이블에서 관련 기록 삭제
+            await db.run('DELETE FROM inbound WHERE item_id = ?', [id]);
+
+            // outbound 테이블에서 관련 기록 삭제
+            await db.run('DELETE FROM outbound WHERE item_id = ?', [id]);
+
+            // current_inventory 뷰는 자동으로 업데이트됨
+        });
+
+        res.json({ message: '재고 항목이 성공적으로 삭제되었습니다.' });
+    } catch (error) {
+        console.error('Error deleting inventory item:', error);
+        res.status(500).json({ error: '재고 항목 삭제 중 오류가 발생했습니다.' });
+    }
+});
+
 module.exports = router;
