@@ -16,9 +16,13 @@ router.get('/', async (req, res) => {
                 ci.description
             FROM 
                 items i
-            LEFT JOIN 
+            INNER JOIN 
                 current_inventory ci ON i.id = ci.item_id
-            `);
+            WHERE
+                ci.current_quantity > 0
+            ORDER BY
+                i.manufacturer, i.item_name, i.item_subname
+        `);
         res.json(inventory);
     } catch (error) {
         console.error('Error fetching inventory:', error);
