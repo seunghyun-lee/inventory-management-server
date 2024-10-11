@@ -12,6 +12,7 @@ router.get('/', async (req, res) => {
                 i.item_subname, 
                 ci.current_quantity, 
                 ci.warehouse_name,
+                ci.warehouse_shelf,
                 ci.description
             FROM 
                 items i
@@ -33,13 +34,15 @@ router.get('/:id', async (req, res) => {
                 i.manufacturer, 
                 i.item_name,
                 i.item_subname,
-                ci.current_quantity
+                ci.current_quantity,
+                ci.warehouse_name,
+                ci.warehouse_shelf
             FROM 
                 items i
             LEFT JOIN 
                 current_inventory ci ON i.id = ci.item_id
             WHERE
-                i.id = ?
+                i.id = $1
             `, [req.params.id]);
 
         if (!item) {
@@ -67,14 +70,14 @@ router.delete('/:id', async (req, res) => {
 
     try {
         await db.runTransaction(async (transaction) => {
-            // items 테이블에서 항목 삭제
-            await db.run('DELETE FROM items WHERE id = ?', [id]);
-
             // inbound 테이블에서 관련 기록 삭제
-            await db.run('DELETE FROM inbound WHERE item_id = ?', [id]);
+            await db.run('DELETE FROM inbound WHERE item_id = $1', [id]);
 
             // outbound 테이블에서 관련 기록 삭제
-            await db.run('DELETE FROM outbound WHERE item_id = ?', [id]);
+            await db.run('DELETE FROM outbound WHERE item_id = $1', [id]);
+
+            // items 테이블에서 항목 삭제
+            await db.run('DELETE FROM items WHERE id = $1', [id]);
 
             // current_inventory 뷰는 자동으로 업데이트됨
         });

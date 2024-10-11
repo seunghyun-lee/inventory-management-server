@@ -10,21 +10,29 @@ router.get('/', async (req, res) => {
                 i.manufacturer, 
                 i.item_name, 
                 i.item_subname, 
-                ib.date,
-                ib.client,
-                ib.total_quantity,
-                ib.handler_name,
-                ib.warehouse_name,
-                ib.description
+                ob.date,
+                ob.client,
+                ob.total_quantity,
+                ob.handler_name,
+                ob.warehouse_name,
+                ob.warehouse_shelf,
+                ob.description
             FROM
-                items i
-            LEFT JOIN
-                outbound ib ON i.id = ib.item_id
-            `);
-        res.json(outboundhistory);
+                outbound ob
+            INNER JOIN
+                items i ON i.id = ob.item_id
+            ORDER BY
+                ob.date DESC
+        `);
+
+        if (outboundhistory.length === 0) {
+            res.json({ message: "출고 이력이 없습니다." });
+        } else {
+            res.json(outboundhistory);
+        }
     } catch (error) {
-        console.log('Error fetching outboundhistory:', error);
-        res.status(500).json({ error: error.message });
+        console.log('Error fetching outbound history:', error);
+        res.status(500).json({ error: '출고 이력을 가져오는 중 오류가 발생했습니다.' });
     }
 });
 

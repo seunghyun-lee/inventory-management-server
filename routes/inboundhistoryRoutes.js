@@ -15,6 +15,7 @@ router.get('/', async (req, res) => {
                 ib.total_quantity,
                 ib.handler_name,
                 ib.warehouse_name,
+                ib.warehouse_shelf,
                 ib.description
             FROM
                 items i

@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
     const { shelf } = req.body;
     try {
-        const result = await db.run('INSERT INTO shelf (shelf) VALUES (?)', [shelf]);
+        const result = await db.run('INSERT INTO shelf (shelf) VALUES ($1)', [shelf]);
         res.status(201).json({ id: result.lastID, shelf });
     } catch (error) {
         console.error('Error adding shelf:', error);
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        await db.run('DELETE FROM shelf WHERE id = ?', [id]);
+        await db.run('DELETE FROM shelf WHERE id = $1', [id]);
         res.json({ message: '위치가 삭제되었습니다.' });
     } catch (error) {
         console.error('Error deleting shelf:', error);

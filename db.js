@@ -22,7 +22,7 @@ async function run(sql, params = []) {
     const client = await pool.connect();
     try {
         const result = await client.query(sql, params);
-        return { id: result.rows[0]?.id };
+        return { id: result.rows[0] && result.rows[0].id };
     } finally {
         client.release();
     }
