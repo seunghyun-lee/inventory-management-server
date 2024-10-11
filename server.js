@@ -10,6 +10,7 @@ const userRoutes = require('./routes/userRoutes');
 const manufacturerRoutes = require('./routes/manufacturerRoutes');
 const warehouseRoutes = require('./routes/warehouseRoutes');
 const shelfRoutes = require('./routes/shelfRoutes');
+const excelRoutes = require('./routes/excelRoutes');
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/manufacturers', manufacturerRoutes);
 app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/shelfs', shelfRoutes);
+app.use('/api', excelRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
