@@ -33,7 +33,6 @@ router.post('/login', async (req, res) => {
             return res.status(403).json({ error: '권한이 없어서 로그인이 불가능합니다.' });
         }
 
-        // 비밀번호를 제외한 사용자 정보 반환
         const { password: _, ...userWithoutPassword } = user;
         res.json(userWithoutPassword);
     } catch (error) {
