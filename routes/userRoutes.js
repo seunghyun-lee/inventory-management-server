@@ -62,7 +62,7 @@ router.put('/:id/role', async (req, res) => {
 
 router.put('/:id/profile', async (req, res) => {
     const { id } = req.params;
-    const { username, handler_name, currentPassword, newPassword } = req.body;
+    const { username, handler_name, email, currentPassword, newPassword } = req.body;
     
     try {
         const userResult = await db.query('SELECT * FROM users WHERE id = $1', [id]);
@@ -92,6 +92,24 @@ router.put('/:id/profile', async (req, res) => {
             paramCount++;
         }
 
+        if (email !== user.email) {
+            // 이메일 중복 체크
+            const existingEmailResult = await db.query('SELECT * FROM users WHERE email = $1 AND id != $2', [email, id]);
+            if (existingEmailResult.length > 0) {
+                return res.status(400).json({ error: '이미 사용 중인 이메일입니다.' });
+            }
+
+            // 이메일 형식 검사
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                return res.status(400).json({ error: '올바른 이메일 형식이 아닙니다.' });
+            }
+
+            updateQuery += `email = $${paramCount}, `;
+            updateValues.push(email);
+            paramCount++;
+        }
+
         if (newPassword) {
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             updateQuery += `password = $${paramCount}, `;
@@ -108,7 +126,7 @@ router.put('/:id/profile', async (req, res) => {
             await db.query(updateQuery, updateValues);
         }
 
-        const updatedUserResult = await db.query('SELECT id, username, handler_name, role FROM users WHERE id = $1', [id]);
+        const updatedUserResult = await db.query('SELECT id, username, handler_name, role, email FROM users WHERE id = $1', [id]);
         const updatedUser = updatedUserResult[0];
 
         res.json(updatedUser);
@@ -119,16 +137,30 @@ router.put('/:id/profile', async (req, res) => {
 });
 
 router.post('/signup', async (req, res) => {
-    const { username, password, handler_name } = req.body;
+    const { username, password, handler_name, email } = req.body;
     try {
+        // 사용자명 중복 체크
         const existingUserResult = await db.query('SELECT * FROM users WHERE username = $1', [username]);
         if (existingUserResult.length > 0) {
             return res.status(400).json({ error: '이미 존재하는 사용자명입니다.' });
         }
+
+        // 이메일 중복 체크
+        const existingEmailResult = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (existingEmailResult.length > 0) {
+            return res.status(400).json({ error: '이미 사용 중인 이메일입니다.' });
+        }
+
+        // 이메일 형식 검사
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: '올바른 이메일 형식이 아닙니다.' });
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
         const result = await db.query(
-            'INSERT INTO users (username, password, handler_name, role) VALUES ($1, $2, $3, $4) RETURNING id',
-            [username, hashedPassword, handler_name, '대기']
+            'INSERT INTO users (username, password, handler_name, role, email) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            [username, hashedPassword, handler_name, '대기', email]
         );
         res.status(201).json({ message: '회원가입이 완료되었습니다.', userId: result[0].id });
     } catch (error) {

@@ -94,7 +94,10 @@ async function createTables() {
             username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
             handler_name TEXT NOT NULL,
-            role TEXT NOT NULL 
+            role TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            reset_token TEXT,
+            reset_token_expires BIGINT 
         );
   
         CREATE TABLE IF NOT EXISTS manufacturer (
