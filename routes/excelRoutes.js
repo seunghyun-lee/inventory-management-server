@@ -44,7 +44,7 @@ router.get('/export-excel', async (req, res) => {
         // Excel 워크북 생성
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Inventory Report');
-
+        
         // 헤더 추가
         const headerRow = worksheet.addRow(['날짜', '구분', '회사', '물품명', '수량', '뒷부호', '메이커', '창고', '위치', '메모', '담당자']);
 
@@ -98,10 +98,9 @@ router.get('/export-excel', async (req, res) => {
         worksheet.columns.forEach(column => {
             column.width = 15;
         });
-
+        
         const now = new Date();
-        const filename = `inventory_report_${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}.xlsx`;
-
+        const filename = `inventory_report_${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}.xlsx`;
         const encodedFilename = encodeURIComponent(filename);
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
