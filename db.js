@@ -66,7 +66,7 @@ async function createTables() {
         CREATE TABLE IF NOT EXISTS inbound (
             id SERIAL PRIMARY KEY,
             item_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
+            date TIMESTAMP NOT NULL,
             supplier TEXT NOT NULL,
             total_quantity INTEGER NOT NULL,
             handler_name TEXT NOT NULL,
@@ -79,7 +79,7 @@ async function createTables() {
         CREATE TABLE IF NOT EXISTS outbound (
             id SERIAL PRIMARY KEY,
             item_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
+            date TIMESTAMP NOT NULL,
             client TEXT NOT NULL,
             total_quantity INTEGER NOT NULL,
             handler_name TEXT NOT NULL,
