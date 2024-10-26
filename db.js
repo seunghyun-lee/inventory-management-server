@@ -89,6 +89,40 @@ async function createTables() {
             FOREIGN KEY (item_id) REFERENCES items(id)
         );
   
+        CREATE TABLE IF NOT EXISTS events (
+            id SERIAL PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+            end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+            all_day BOOLEAN DEFAULT false,
+            author VARCHAR(100) NOT NULL,
+            location VARCHAR(255),
+            notification BOOLEAN DEFAULT false,
+            color VARCHAR(20) DEFAULT '#1a73e8',
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Drop existing function and trigger if they exist
+        DROP TRIGGER IF EXISTS update_events_updated_at ON events;
+        DROP FUNCTION IF EXISTS update_updated_at_column();
+
+        -- Create function
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+        END;
+        $$ language 'plpgsql';
+
+        -- Create trigger
+        CREATE TRIGGER update_events_updated_at
+            BEFORE UPDATE ON events
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+
         CREATE TABLE IF NOT EXISTS users ( 
             id SERIAL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
@@ -140,6 +174,7 @@ async function createTables() {
         console.log('Tables created successfully');
     } catch (err) {
         console.error('Error creating tables:', err);
+        throw err;
     } finally {
         client.release();
     }
