@@ -2,13 +2,11 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 
-// GET events
 router.get('/', async (req, res) => {
     try {
         const { start, end } = req.query;
         console.log('Fetching events with params:', { start, end });
         
-        // 시작 시간과 종료 시간이 요청된 기간과 겹치는 모든 이벤트를 가져오는 쿼리
         const events = await pool.all(
             `SELECT * FROM events 
             WHERE 
@@ -17,7 +15,7 @@ router.get('/', async (req, res) => {
             [start, end]
         );
 
-        console.log('Found events:', events); // 디버깅용 로그 추가
+        console.log('Found events:', events);
         res.json(events);
     } catch (error) {
         console.error('Error fetching events:', error);
@@ -25,7 +23,6 @@ router.get('/', async (req, res) => {
     }
 });
 
-// POST event
 router.post('/', async (req, res) => {
     try {
         console.log('Received event data:', req.body);
@@ -42,7 +39,6 @@ router.post('/', async (req, res) => {
             color
         } = req.body;
 
-        // 필수 필드 검증
         if (!title || !description || !start_time || !end_time || !author) {
             return res.status(400).json({
                 error: '필수 필드가 누락되었습니다.',
@@ -50,7 +46,6 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // 날짜 유효성 검사
         const startDate = new Date(start_time);
         const endDate = new Date(end_time);
 
@@ -106,7 +101,6 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT event
 router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -124,7 +118,6 @@ router.put('/:id', async (req, res) => {
 
         console.log('Updating event:', { id, ...req.body });
 
-        // 필수 필드 검증
         if (!title || !description || !start_time || !end_time || !author) {
             return res.status(400).json({
                 error: '필수 필드가 누락되었습니다.',
@@ -132,7 +125,6 @@ router.put('/:id', async (req, res) => {
             });
         }
 
-        // 날짜 유효성 검사
         const startDate = new Date(start_time);
         const endDate = new Date(end_time);
 
@@ -150,7 +142,6 @@ router.put('/:id', async (req, res) => {
             });
         }
 
-        // 기존 이벤트 확인
         const existingEvent = await pool.get(
             'SELECT * FROM events WHERE id = $1',
             [id]
@@ -209,7 +200,6 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-// DELETE event
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
