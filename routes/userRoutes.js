@@ -75,7 +75,7 @@ router.post('/add', async (req, res) => {
         );
 
         // 비밀번호 설정 이메일 발송
-        const resetUrl = `https://inventory-management-client-iota.vercel.app/set-password/${resetToken}`;
+        const resetUrl = `https://inventory-management-client-iota.vercel.app/reset-password/${resetToken}`;
         
         const mailOptions = {
             from: process.env.GMAIL_USER,
