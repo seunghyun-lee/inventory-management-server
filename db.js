@@ -1,18 +1,42 @@
-if (process.env.NODE_ENV !== 'production') {
-    require('dotenv').config({ path: '.env.development.local' });
-}
 const { Pool } = require('pg');
 
+// 환경변수 설정 부분 수정
+const isProduction = process.env.NODE_ENV === 'production';
+const connectionString = process.env.POSTGRES_URL;
+
+if (!connectionString) {
+    throw new Error('Database connection string (POSTGRES_URL) is not provided');
+}
+
 const pool = new Pool({
-    connectionString: process.env.POSTGRES_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    connectionString,
+    ssl: isProduction ? { 
+        rejectUnauthorized: false 
+    } : false,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+});
+
+// 연결 에러 모니터링
+pool.on('error', (err) => {
+    console.error('Unexpected error on idle client', err);
 });
 
 async function query(text, params) {
     const client = await pool.connect();
     try {
+        console.log('Executing query:', { text, params });
         const result = await client.query(text, params);
+        console.log('Query result rows:', result.rows.length);
         return result.rows;
+    } catch (error) {
+        console.error('Database query error:', {
+            error: error.message,
+            query: text,
+            params
+        });
+        throw error;
     } finally {
         client.release();
     }
@@ -49,6 +73,28 @@ async function runTransaction(callback) {
         throw error;
     } finally {
         client.release();
+    }
+}
+
+// 상태 체크 함수
+async function checkConnection() {
+    try {
+        const client = await pool.connect();
+        const result = await client.query('SELECT NOW()');
+        client.release();
+        return {
+            status: 'connected',
+            timestamp: result.rows[0].now,
+            environment: process.env.NODE_ENV || 'development',
+            database_url: connectionString ? 'configured' : 'missing'
+        };
+    } catch (error) {
+        return {
+            status: 'error',
+            error: error.message,
+            environment: process.env.NODE_ENV || 'development',
+            database_url: connectionString ? 'configured' : 'missing'
+        };
     }
 }
 
@@ -426,5 +472,6 @@ module.exports = {
     run,
     get,
     all,
-    runTransaction
+    runTransaction,
+    checkConnection
 }
