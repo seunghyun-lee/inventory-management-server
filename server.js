@@ -15,6 +15,7 @@ const shelfRoutes = require('./routes/shelfRoutes');
 const itemRoutes = require('./routes/itemRoutes');
 const excelRoutes = require('./routes/excelRoutes');
 const passwordResetRoutes = require('./routes/passwordResetRoutes');
+const statusRoutes = require('./routes/statusRoutes');
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/api/shelfs', shelfRoutes);
 app.use('/api/items', itemRoutes);
 app.use('/api', excelRoutes);
 app.use('/api/users', passwordResetRoutes);
+app.use('/api', statusRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
