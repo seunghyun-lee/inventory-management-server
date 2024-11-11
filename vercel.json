@@ -23,6 +23,17 @@
             "destination": "/server.js" 
         }
     ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "/server.js"
+        }
+    ],
+    "functions": {
+        "api/**/*.js": {
+            "maxDuration": 10
+        }
+    },
     "env": {
         "NODE_ENV": "production"
     }

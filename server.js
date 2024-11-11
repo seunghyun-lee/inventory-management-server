@@ -19,6 +19,21 @@ const statusRoutes = require('./routes/statusRoutes');
 
 const app = express();
 
+// 에러 핸들링 추가
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// 전역 에러 핸들링
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+  
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
 app.use(cors({
     origin: ['https://inventory-management-client-iota.vercel.app', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -41,6 +56,9 @@ app.use('/api/items', itemRoutes);
 app.use('/api', excelRoutes);
 app.use('/api/users', passwordResetRoutes);
 app.use('/api', statusRoutes);
+
+console.log('서버 시작');
+console.log('환경변수:', process.env.NODE_ENV);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
