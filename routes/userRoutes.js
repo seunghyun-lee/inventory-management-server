@@ -150,17 +150,17 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: '잘못된 사용자명 또는 비밀번호입니다.' });
         }
 
-        // 비밀번호가 설정되지 않은 경우 (reset_token이 있는 경우)
-        if (user.reset_token) {
-            return res.status(401).json({ 
-                error: '비밀번호를 먼저 설정해주세요. 이메일에서 비밀번호 설정 링크를 확인해주세요.' 
-            });
-        }
-
         const isPasswordValid = await bcrypt.compare(password, user.password);
 
         if (!isPasswordValid) {
             return res.status(401).json({ error: '잘못된 사용자명 또는 비밀번호입니다.' });
+        }
+
+        // reset_token이 있고 만료되지 않은 경우에만 비밀번호 설정 요구
+        if (user.reset_token && user.reset_token_expires && user.reset_token_expires > Date.now()) {
+            return res.status(401).json({ 
+                error: '비밀번호를 먼저 설정해주세요. 이메일에서 비밀번호 설정 링크를 확인해주세요.' 
+            });
         }
 
         if (user.role === '퇴사' || user.role === '대기') {
