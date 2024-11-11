@@ -15,8 +15,15 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
     const { shelf } = req.body;
     try {
-        const result = await db.run('INSERT INTO shelf (shelf) VALUES ($1)', [shelf]);
-        res.status(201).json({ id: result.lastID, shelf });
+        // INSERT 쿼리 실행 후 새로 생성된 레코드를 조회
+        await db.run('INSERT INTO shelf (shelf) VALUES ($1)', [shelf]);
+        const newShelf = await db.get('SELECT * FROM shelf WHERE shelf = $1 ORDER BY id DESC LIMIT 1', [shelf]);
+        
+        if (newShelf) {
+            res.status(201).json({ id: newShelf.id, shelf: newShelf.shelf });
+        } else {
+            throw new Error('Failed to retrieve inserted shelf');
+        }
     } catch (error) {
         console.error('Error adding shelf:', error);
         res.status(500).json({ error: '위치 추가에 실패했습니다.' });

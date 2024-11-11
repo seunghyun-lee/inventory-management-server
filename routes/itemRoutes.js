@@ -158,58 +158,109 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
     const { manufacturer, item_name, item_subname, item_subno, price } = req.body;
+    
+    // 필수 필드 검증
+    if (!manufacturer || !item_name) {
+        return res.status(400).json({ 
+            success: false, 
+            error: '제조사와 품목명은 필수 입력 항목입니다.' 
+        });
+    }
+
     try {
-        const result = await db.run(
-            'INSERT INTO items (manufacturer, item_name, item_subname, item_subno, price) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-            [manufacturer, item_name, item_subname, item_subno, price]
+        // price 값 처리
+        let processedPrice = null;
+        if (price !== undefined && price !== '') {
+            // 문자열이나 숫자를 정수로 변환
+            processedPrice = parseInt(price);
+            if (isNaN(processedPrice)) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: '가격은 유효한 숫자여야 합니다.' 
+                });
+            }
+        }
+
+        // 새 아이템 추가
+        await db.run(
+            'INSERT INTO items (manufacturer, item_name, item_subname, item_subno, price) VALUES ($1, $2, $3, $4, $5)',
+            [manufacturer, item_name, item_subname || null, item_subno || null, processedPrice]
         );
-        res.status(201).json(result);
+
+        // 추가된 아이템 조회
+        const newItem = await db.get(
+            'SELECT * FROM items WHERE manufacturer = $1 AND item_name = $2 AND (item_subname = $3 OR (item_subname IS NULL AND $3 IS NULL)) AND (item_subno = $4 OR (item_subno IS NULL AND $4 IS NULL)) ORDER BY id DESC LIMIT 1',
+            [manufacturer, item_name, item_subname || null, item_subno || null]
+        );
+
+        res.status(201).json({ 
+            success: true,
+            message: '품목이 성공적으로 추가되었습니다.',
+            data: newItem
+        });
     } catch (error) {
         console.error('Error adding item:', error);
-        res.status(500).json({ error: '품목 추가에 실패했습니다.' });
+        res.status(500).json({ 
+            success: false,
+            error: '품목 추가에 실패했습니다.',
+            details: error.message 
+        });
     }
 });
 
 router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { manufacturer, item_name, item_subname, item_subno, price } = req.body;
-    try {
-        const existingItem = await db.run(
-            'SELECT id FROM items WHERE id = $1',
-            [id]
-        );
 
-        if (existingItem.rowCount === 0) {
+    // 필수 필드 검증
+    if (!manufacturer || !item_name) {
+        return res.status(400).json({ 
+            success: false, 
+            error: '제조사와 품목명은 필수 입력 항목입니다.' 
+        });
+    }
+
+    try {
+        // 아이템 존재 여부 확인
+        const existingItem = await db.get('SELECT id FROM items WHERE id = $1', [id]);
+        if (!existingItem) {
             return res.status(404).json({
                 success: false,
                 error: '해당 ID의 품목을 찾을 수 없습니다.'
             });
         }
 
-        const result = await db.run(
+        // price 값 처리
+        let processedPrice = null;
+        if (price !== undefined && price !== '') {
+            processedPrice = parseInt(price);
+            if (isNaN(processedPrice)) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: '가격은 유효한 숫자여야 합니다.' 
+                });
+            }
+        }
+
+        // 아이템 업데이트
+        await db.run(
             `UPDATE items
             SET manufacturer = $1,
                 item_name = $2,
                 item_subname = $3,
                 item_subno = $4,
                 price = $5
-            WHERE id = $6
-            RETURNING *
-            `,
-            [manufacturer, item_name, item_subname, item_subno, price, id]
+            WHERE id = $6`,
+            [manufacturer, item_name, item_subname || null, item_subno || null, processedPrice, id]
         );
 
-        if (result.rowCount === 0) {
-            return res.status(404).json({
-                success: false,
-                error: '품목 업데이트에 실패했습니다.'
-            });
-        }
+        // 업데이트된 아이템 조회
+        const updatedItem = await db.get('SELECT * FROM items WHERE id = $1', [id]);
 
         res.json({
             success: true,
             message: '품목이 성공적으로 수정되었습니다.',
-            data: result
+            data: updatedItem
         });
     } catch (error) {
         console.error('Error updating item:', error);

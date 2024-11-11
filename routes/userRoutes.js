@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcrypt');
 
+const validRoles = ['관리자', '직원', '조회자', '퇴사', '대기'];
+
 router.get('/', async (req, res) => {
     try {
         const users = await db.query('SELECT id, username, handler_name, role FROM users');
@@ -46,15 +48,30 @@ router.put('/:id/role', async (req, res) => {
     const { role } = req.body;
 
     try {
-        const validRoles = ['관리자', '직원', '퇴사', '대기'];
-        if (!validRoles.includes(role)) {
-            return res.status(400).json({ error: '유효하지 않은 역할입니다.' });
+        // 역할 유효성 검사
+        if (!role || !validRoles.includes(role)) {
+            return res.status(400).json({ 
+                error: '유효하지 않은 역할입니다.',
+                details: `역할은 다음 중 하나여야 합니다: ${validRoles.join(', ')}`
+            });
         }
 
+        // 사용자 존재 여부 확인
+        const userExists = await db.get('SELECT id FROM users WHERE id = $1', [id]);
+        if (!userExists) {
+            return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+        }
+
+        // 역할 업데이트
         await db.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
-        res.json({ message: '사용자 역할이 업데이트되었습니다.' });
+        
+        // 성공 응답
+        res.json({ 
+            message: '사용자 역할이 업데이트되었습니다.',
+            role: role
+        });
     } catch (error) {
-        console.log('Error updating user role:', error);
+        console.error('Error updating user role:', error);
         res.status(500).json({ error: '사용자 역할 업데이트에 실패했습니다.' });
     }
 });
