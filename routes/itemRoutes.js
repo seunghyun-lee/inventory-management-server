@@ -1,119 +1,119 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const multer = require('multer');
-const { parse } = require('csv-parse');
-const fs = require('fs');
+// const multer = require('multer');
+// const { parse } = require('csv-parse');
+// const fs = require('fs');
 
-const upload = multer({ dest: 'uploads/' });
+// const upload = multer({ dest: 'uploads/' });
 
-router.post('/upload', upload.single('file'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ success: false, error: '파일이 업로드되지 않았습니다.' });
-    }
+// router.post('/upload', upload.single('file'), async (req, res) => {
+//     if (!req.file) {
+//         return res.status(400).json({ success: false, error: '파일이 업로드되지 않았습니다.' });
+//     }
 
-    const results = [];
+//     const results = [];
     
-    // UTF-8 with BOM으로 파일 읽기
-    const fileContent = fs.readFileSync(req.file.path, 'utf8')
-        .replace(/^\uFEFF/, '');  // BOM 제거
+//     // UTF-8 with BOM으로 파일 읽기
+//     const fileContent = fs.readFileSync(req.file.path, 'utf8')
+//         .replace(/^\uFEFF/, '');  // BOM 제거
     
-    console.log('File content first line:', fileContent.split('\n')[0]);
+//     console.log('File content first line:', fileContent.split('\n')[0]);
     
-    parse(fileContent, {
-        delimiter: ',',
-        columns: true,
-        trim: true,
-        skip_empty_lines: true
-    }, (err, records) => {
-        if (err) {
-            console.error('Parsing error:', err);
-            return res.status(500).json({
-                success: false,
-                error: 'CSV 파일 파싱 중 오류가 발생했습니다.'
-            });
-        }
+//     parse(fileContent, {
+//         delimiter: ',',
+//         columns: true,
+//         trim: true,
+//         skip_empty_lines: true
+//     }, (err, records) => {
+//         if (err) {
+//             console.error('Parsing error:', err);
+//             return res.status(500).json({
+//                 success: false,
+//                 error: 'CSV 파일 파싱 중 오류가 발생했습니다.'
+//             });
+//         }
 
-        // 실제 헤더 확인
-        console.log('Headers:', records.length > 0 ? Object.keys(records[0]) : 'No records');
-        console.log('First record:', records.length > 0 ? records[0] : 'No records');
+//         // 실제 헤더 확인
+//         console.log('Headers:', records.length > 0 ? Object.keys(records[0]) : 'No records');
+//         console.log('First record:', records.length > 0 ? records[0] : 'No records');
 
-        records.forEach(data => {
-            // 실제 키 이름으로 접근
-            const keys = Object.keys(data);
-            const itemNameKey = keys.find(k => k.includes('물품명') || k.endsWith('명'));
-            const subNameKey = keys.find(k => k.includes('뒷부호') || k.includes('부호'));
-            const manufacturerKey = keys.find(k => k.includes('메이커') || k.includes('커'));
+//         records.forEach(data => {
+//             // 실제 키 이름으로 접근
+//             const keys = Object.keys(data);
+//             const itemNameKey = keys.find(k => k.includes('물품명') || k.endsWith('명'));
+//             const subNameKey = keys.find(k => k.includes('뒷부호') || k.includes('부호'));
+//             const manufacturerKey = keys.find(k => k.includes('메이커') || k.includes('커'));
 
-            if (itemNameKey && data[itemNameKey]) {
-                const item = {
-                    item_name: data[itemNameKey].trim(),
-                    item_subname: subNameKey && data[subNameKey] ? data[subNameKey].trim() : null,
-                    manufacturer: manufacturerKey && data[manufacturerKey] ? data[manufacturerKey].trim() : '비어 있음'
-                };
-                console.log('Processing item:', item);
-                results.push(item);
-            }
-        });
+//             if (itemNameKey && data[itemNameKey]) {
+//                 const item = {
+//                     item_name: data[itemNameKey].trim(),
+//                     item_subname: subNameKey && data[subNameKey] ? data[subNameKey].trim() : null,
+//                     manufacturer: manufacturerKey && data[manufacturerKey] ? data[manufacturerKey].trim() : '비어 있음'
+//                 };
+//                 console.log('Processing item:', item);
+//                 results.push(item);
+//             }
+//         });
 
-        processBatch();
-    });
+//         processBatch();
+//     });
 
-    const processBatch = async () => {
-        try {
-            console.log('Total items to process:', results.length);
+//     const processBatch = async () => {
+//         try {
+//             console.log('Total items to process:', results.length);
             
-            if (results.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    error: '처리할 데이터가 없습니다.'
-                });
-            }
+//             if (results.length === 0) {
+//                 return res.status(400).json({
+//                     success: false,
+//                     error: '처리할 데이터가 없습니다.'
+//                 });
+//             }
 
-            const values = results.map((_, index) => {
-                const offset = index * 3;
-                return `($${offset + 1}, $${offset + 2}, $${offset + 3})`;
-            }).join(', ');
+//             const values = results.map((_, index) => {
+//                 const offset = index * 3;
+//                 return `($${offset + 1}, $${offset + 2}, $${offset + 3})`;
+//             }).join(', ');
 
-            const params = results.flatMap(item => [
-                item.item_name,
-                item.item_subname,
-                item.manufacturer
-            ]);
+//             const params = results.flatMap(item => [
+//                 item.item_name,
+//                 item.item_subname,
+//                 item.manufacturer
+//             ]);
 
-            console.log('First few parameters:', params.slice(0, 9));
+//             console.log('First few parameters:', params.slice(0, 9));
 
-            const query = `
-                INSERT INTO items (item_name, item_subname, manufacturer)
-                VALUES ${values}
-                ON CONFLICT (manufacturer, item_name, item_subname, item_subno) 
-                DO NOTHING
-                RETURNING *;
-            `;
+//             const query = `
+//                 INSERT INTO items (item_name, item_subname, manufacturer)
+//                 VALUES ${values}
+//                 ON CONFLICT (manufacturer, item_name, item_subname, item_subno) 
+//                 DO NOTHING
+//                 RETURNING *;
+//             `;
 
-            const result = await db.run(query, params);
+//             const result = await db.run(query, params);
             
-            // 임시 파일 삭제
-            fs.unlink(req.file.path, (err) => {
-                if (err) console.error('Error deleting temp file:', err);
-            });
+//             // 임시 파일 삭제
+//             fs.unlink(req.file.path, (err) => {
+//                 if (err) console.error('Error deleting temp file:', err);
+//             });
 
-            res.json({
-                success: true,
-                message: '데이터가 성공적으로 업로드되었습니다.',
-                count: result.rowCount || 0,
-                totalProcessed: results.length
-            });
-        } catch (error) {
-            console.error('Error inserting data:', error);
-            res.status(500).json({
-                success: false,
-                error: '데이터 삽입 중 오류가 발생했습니다.',
-                details: error.message
-            });
-        }
-    };
-});
+//             res.json({
+//                 success: true,
+//                 message: '데이터가 성공적으로 업로드되었습니다.',
+//                 count: result.rowCount || 0,
+//                 totalProcessed: results.length
+//             });
+//         } catch (error) {
+//             console.error('Error inserting data:', error);
+//             res.status(500).json({
+//                 success: false,
+//                 error: '데이터 삽입 중 오류가 발생했습니다.',
+//                 details: error.message
+//             });
+//         }
+//     };
+// });
 
 router.get('/', async (req, res) => {
     try {
