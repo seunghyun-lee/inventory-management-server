@@ -5,6 +5,8 @@ const db = require('../db');
 
 router.get('/export-excel', async (req, res) => {
     try {
+        const { startDate, endDate } = req.query;
+        
         const inboundData = await db.all(`
             SELECT 
                 'inbound' as type,
@@ -20,7 +22,8 @@ router.get('/export-excel', async (req, res) => {
                 i.handler_name
             FROM inbound i
             JOIN items it ON i.item_id = it.id
-        `);
+            WHERE i.date BETWEEN $1 AND $2
+        `, [startDate, endDate]);
 
         const outboundData = await db.all(`
             SELECT 
@@ -37,7 +40,8 @@ router.get('/export-excel', async (req, res) => {
                 o.handler_name
             FROM outbound o
             JOIN items it ON o.item_id = it.id
-        `);
+            WHERE o.date BETWEEN $1 AND $2
+        `, [startDate, endDate]);
 
         const allData = [...inboundData, ...outboundData].sort((a, b) => new Date(a.date) - new Date(b.date));
 
