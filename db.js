@@ -3,12 +3,36 @@ if (process.env.NODE_ENV !== 'production') {
 }
 const { Pool } = require('pg');
 
-const pool = new Pool({
-    connectionString: process.env.POSTGRES_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { 
-        rejectUnauthorized: false 
-    } : false
-});
+let pool;
+// 환경에 따른 데이터베이스 설정
+if (process.env.NODE_ENV === 'production') {
+    // 프로덕션 환경 (Vercel)
+    pool = new Pool({
+        connectionString: process.env.POSTGRES_URL,
+        ssl: {
+            rejectUnauthorized: false
+        }
+    });
+} else {
+    // 로컬 개발 환경
+    pool = new Pool({
+        connectionString: process.env.POSTGRES_URL,
+        ssl: false // SSL 비활성화
+    });
+}
+
+// 연결 테스트
+const testConnection = async () => {
+    try {
+        const client = await pool.connect();
+        console.log('Database connected successfully');
+        client.release();
+    } catch (err) {
+        console.error('Database connection error:', err.stack);
+    }
+};
+
+testConnection();
 
 // 재고 업데이트 함수
 async function updateInventory(client, {
@@ -394,9 +418,25 @@ createTables().catch(err => {
 });
 
 module.exports = {
-    query,
+    query: async (text, params) => {
+        try {
+            const result = await pool.query(text, params);
+            return result.rows;
+        } catch (error) {
+            console.error('Query error:', error);
+            throw error;
+        }
+    },
+    get: async (text, params) => {
+        try {
+            const result = await pool.query(text, params);
+            return result.rows[0];
+        } catch (error) {
+            console.error('Query error:', error);
+            throw error;
+        }
+    },
     run,
-    get,
     all,
     runTransaction,
     processInbound,
