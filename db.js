@@ -4,101 +4,21 @@ if (process.env.NODE_ENV !== 'production') {
 const { Pool } = require('pg');
 
 let pool;
-// 환경에 따른 데이터베이스 설정
-if (process.env.NODE_ENV === 'production') {
-    // 프로덕션 환경 (Vercel)
-    pool = new Pool({
+const createPool = () => {
+    const config = {
         connectionString: process.env.POSTGRES_URL,
-        ssl: {
+        ssl: process.env.NODE_ENV === 'production' ? {
+            require: true,
             rejectUnauthorized: false
-        }
-    });
-} else {
-    // 로컬 개발 환경
-    pool = new Pool({
-        connectionString: process.env.POSTGRES_URL,
-        ssl: false // SSL 비활성화
-    });
-}
+        } : false,
+        // 연결 타임아웃 설정 추가
+        connectionTimeoutMillis: 5000,
+        idleTimeoutMillis: 30000,
+        max: 20
+    };
 
-// 연결 테스트
-const testConnection = async () => {
-    try {
-        const client = await pool.connect();
-        console.log('Database connected successfully');
-        client.release();
-    } catch (err) {
-        console.error('Database connection error:', err.stack);
-    }
+    return new Pool(config);
 };
-
-testConnection();
-
-// 재고 업데이트 함수
-async function updateInventory(client, {
-    item_id,
-    warehouse_name,
-    warehouse_shelf,
-    quantity_change,
-    operation_type,
-    reference_id,
-    description = ''
-}) {
-    // 현재 재고 조회
-    const currentInventory = await client.query(
-        `SELECT current_quantity 
-         FROM current_inventory 
-         WHERE item_id = $1 
-         AND warehouse_name = $2 
-         AND warehouse_shelf = $3`,
-        [item_id, warehouse_name, warehouse_shelf]
-    );
-
-    const currentQuantity = currentInventory.rows[0]?.current_quantity || 0;
-    const newQuantity = currentQuantity + quantity_change;
-
-    if (newQuantity < 0) {
-        throw new Error('재고가 부족합니다');
-    }
-
-    // 재고 업데이트
-    await client.query(
-        `INSERT INTO current_inventory (
-            item_id, warehouse_name, warehouse_shelf, current_quantity, last_updated
-        ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-        ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
-        DO UPDATE SET 
-            current_quantity = $4,
-            last_updated = CURRENT_TIMESTAMP`,
-        [item_id, warehouse_name, warehouse_shelf, newQuantity]
-    );
-
-    // 감사 로그 추가
-    await client.query(
-        `INSERT INTO inventory_audit (
-            item_id,
-            operation_type,
-            quantity_change,
-            previous_quantity,
-            new_quantity,
-            reference_id,
-            reference_type,
-            description
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-            item_id,
-            operation_type,
-            quantity_change,
-            currentQuantity,
-            newQuantity,
-            reference_id,
-            operation_type.split('_')[0], // inbound or outbound
-            description
-        ]
-    );
-
-    return { currentQuantity, newQuantity };
-}
 
 // 기본 테이블 생성
 async function createTables() {
@@ -179,29 +99,88 @@ async function createTables() {
     }
 }
 
-// 기본 쿼리 함수들
-async function query(text, params) {
-    const client = await pool.connect();
+const initializeDatabase = async () => {
     try {
-        const result = await client.query(text, params);
-        return result.rows;
-    } finally {
+        pool = createPool();
+        
+        // 초기 연결 테스트
+        const client = await pool.connect();
+        console.log('Database connected successfully');
         client.release();
+        
+        return pool;
+    } catch (err) {
+        console.error('Failed to initialize database:', err);
+        // 연결 실패 시 재시도
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return initializeDatabase();
     }
-}
+};
 
-async function run(sql, params = []) {
-    const result = await query(sql, params);
-    return { id: result[0] && result[0].id };
-}
+// 재고 업데이트 함수
+async function updateInventory(client, {
+    item_id,
+    warehouse_name,
+    warehouse_shelf,
+    quantity_change,
+    operation_type,
+    reference_id,
+    description = ''
+}) {
+    // 현재 재고 조회
+    const currentInventory = await client.query(
+        `SELECT current_quantity 
+         FROM current_inventory 
+         WHERE item_id = $1 
+         AND warehouse_name = $2 
+         AND warehouse_shelf = $3`,
+        [item_id, warehouse_name, warehouse_shelf]
+    );
 
-async function get(sql, params = []) {
-    const result = await query(sql, params);
-    return result[0];
-}
+    const currentQuantity = currentInventory.rows[0]?.current_quantity || 0;
+    const newQuantity = currentQuantity + quantity_change;
 
-async function all(sql, params = []) {
-    return await query(sql, params);
+    if (newQuantity < 0) {
+        throw new Error('재고가 부족합니다');
+    }
+
+    // 재고 업데이트
+    await client.query(
+        `INSERT INTO current_inventory (
+            item_id, warehouse_name, warehouse_shelf, current_quantity, last_updated
+        ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
+        DO UPDATE SET 
+            current_quantity = $4,
+            last_updated = CURRENT_TIMESTAMP`,
+        [item_id, warehouse_name, warehouse_shelf, newQuantity]
+    );
+
+    // 감사 로그 추가
+    await client.query(
+        `INSERT INTO inventory_audit (
+            item_id,
+            operation_type,
+            quantity_change,
+            previous_quantity,
+            new_quantity,
+            reference_id,
+            reference_type,
+            description
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+            item_id,
+            operation_type,
+            quantity_change,
+            currentQuantity,
+            newQuantity,
+            reference_id,
+            operation_type.split('_')[0], // inbound or outbound
+            description
+        ]
+    );
+
+    return { currentQuantity, newQuantity };
 }
 
 async function runTransaction(callback) {
@@ -411,31 +390,71 @@ async function recalculateInventory() {
     });
 }
 
+// 초기화 순서 변경
+let initialized = false;
+
+async function initialize() {
+    if (!initialized) {
+        await initializeDatabase();
+        initialized = true;
+    }
+    return pool;
+}
+
+// 모든 DB 작업 전에 초기화 확인
+async function getPool() {
+    if (!pool) {
+        await initialize();
+    }
+    return pool;
+}
+
+// 기본 쿼리 함수들
+const query = async (text, params) => {
+    const pool = await getPool();
+    try {
+        const result = await pool.query(text, params);
+        return result.rows;
+    } catch (error) {
+        console.error('Query error:', error);
+        throw error;
+    }
+};
+
+const get = async (text, params) => {
+    const pool = await getPool();
+    try {
+        const result = await pool.query(text, params);
+        return result.rows[0];
+    } catch (error) {
+        console.error('Query error:', error);
+        throw error;
+    }
+};
+
+async function run(sql, params = []) {
+    const result = await query(sql, params);
+    return result[0];
+}
+
+async function all(sql, params = []) {
+    return await query(sql, params);
+}
+
 // 애플리케이션 시작 시 테이블 생성
-createTables().catch(err => {
-    console.error('Failed to create tables:', err);
+// createTables().catch(err => {
+//     console.error('Failed to create tables:', err);
+//     process.exit(1);
+// });
+
+initialize().catch(err => {
+    console.error('Failed to initialize database:', err);
     process.exit(1);
 });
 
 module.exports = {
-    query: async (text, params) => {
-        try {
-            const result = await pool.query(text, params);
-            return result.rows;
-        } catch (error) {
-            console.error('Query error:', error);
-            throw error;
-        }
-    },
-    get: async (text, params) => {
-        try {
-            const result = await pool.query(text, params);
-            return result.rows[0];
-        } catch (error) {
-            console.error('Query error:', error);
-            throw error;
-        }
-    },
+    query,
+    get,
     run,
     all,
     runTransaction,

@@ -18,5 +18,10 @@
             "dest": "/server.js",
             "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
         }
-    ]
+    ],
+    "functions": {
+        "api/**/*.js": {
+            "maxDuration": 30
+        }
+    }
 }

@@ -28,6 +28,18 @@ process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
 });
 
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+        return res.status(503).json({ 
+            error: 'Database connection error. Please try again.' 
+        });
+    }
+    return res.status(500).json({ 
+        error: 'Internal server error' 
+    });
+});
+
 app.use(cors({
     origin: ['https://inventory-management-client-iota.vercel.app', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -36,10 +48,7 @@ app.use(cors({
     preflightContinue: false,
     optionsSuccessStatus: 204
 }));
-app.use((err, req, res, next) => {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-});
+
 app.use(express.json());
 
 app.use('/api/inventory', inventoryRoute);
