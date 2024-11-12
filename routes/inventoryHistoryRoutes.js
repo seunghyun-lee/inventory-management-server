@@ -133,29 +133,34 @@ router.delete('/outbound/:id', async (req, res) => {
             const outboundRecord = outboundResult.rows[0];
 
             // 2. 현재 재고 상태 확인
-            const inventoryResult = await client.query(`
-                SELECT current_quantity 
-                FROM current_inventory 
-                WHERE item_id = $1
-            `, [outboundRecord.item_id]);
+            const inventoryResult = await client.query(
+                `SELECT current_quantity 
+                 FROM current_inventory 
+                 WHERE item_id = $1 
+                 AND warehouse_name = $2 
+                 AND warehouse_shelf = $3`,
+                [outboundRecord.item_id, outboundRecord.warehouse_name, outboundRecord.warehouse_shelf]
+            );
 
-            const currentQuantity = parseInt(inventoryResult.rows[0]?.current_quantity || 0);
+            const currentQuantity = inventoryResult.rows[0]?.current_quantity || 0;
             const quantityToAdd = parseInt(outboundRecord.total_quantity);
             const newQuantity = currentQuantity + quantityToAdd;
 
-            console.log('Current quantity:', currentQuantity);
-            console.log('Quantity to add back:', quantityToAdd);
-            console.log('New quantity will be:', newQuantity);
-
-            // 3. 출고 기록 삭제
+            // 3. 재고 수량 업데이트
             await client.query(
-                'DELETE FROM outbound WHERE id = $1',
-                [id]
+                `INSERT INTO current_inventory (
+                    item_id, warehouse_name, warehouse_shelf, current_quantity, last_updated
+                ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
+                DO UPDATE SET 
+                    current_quantity = $4,
+                    last_updated = CURRENT_TIMESTAMP`,
+                [outboundRecord.item_id, outboundRecord.warehouse_name, outboundRecord.warehouse_shelf, newQuantity]
             );
 
-            // 4. 재고 감사 로그 추가 (description 컬럼 제외)
-            await client.query(`
-                INSERT INTO inventory_audit (
+            // 4. 재고 감사 로그 추가
+            await client.query(
+                `INSERT INTO inventory_audit (
                     item_id,
                     operation_type,
                     quantity_change,
@@ -164,17 +169,24 @@ router.delete('/outbound/:id', async (req, res) => {
                     reference_id,
                     reference_type,
                     description
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `, [
-                outboundRecord.item_id,
-                'outbound_delete',
-                quantityToAdd,
-                currentQuantity,
-                newQuantity,
-                id,
-                'outbound',
-                '출고 취소로 인한 재고 반환'
-            ]);
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [
+                    outboundRecord.item_id,
+                    'outbound_delete',
+                    quantityToAdd,
+                    currentQuantity,
+                    newQuantity,
+                    id,
+                    'outbound',
+                    '출고 취소로 인한 재고 반환'
+                ]
+            );
+
+            // 5. 출고 기록 삭제
+            await client.query(
+                'DELETE FROM outbound WHERE id = $1',
+                [id]
+            );
 
             deletedRecord = {
                 ...outboundRecord,
