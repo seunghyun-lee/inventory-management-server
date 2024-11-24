@@ -222,4 +222,49 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
+router.patch('/:id/toggle-completion', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // 현재 일정의 완료 상태를 확인
+        const currentEvent = await pool.get(
+            'SELECT * FROM events WHERE id = $1',
+            [id]
+        );
+
+        if (!currentEvent) {
+            return res.status(404).json({ error: '해당 일정을 찾을 수 없습니다.' });
+        }
+
+        // 완료 상태를 토글하고 완료 시간을 업데이트
+        const query = `
+            UPDATE events 
+            SET 
+                is_completed = NOT is_completed,
+                completed_at = CASE 
+                    WHEN NOT is_completed THEN CURRENT_TIMESTAMP
+                    ELSE NULL
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *
+        `;
+
+        const updatedEvent = await pool.get(query, [id]);
+
+        if (!updatedEvent) {
+            throw new Error('일정 상태 업데이트 실패');
+        }
+
+        console.log('Updated event completion status:', updatedEvent);
+        res.json(updatedEvent);
+    } catch (error) {
+        console.error('Error toggling event completion:', error);
+        res.status(500).json({
+            error: '일정 상태 업데이트 중 오류가 발생했습니다.',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;

@@ -2,6 +2,16 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// 한국 시간대로 날짜를 변환하는 유틸리티 함수
+function toKSTDate(date) {
+    // 날짜 문자열이 들어오면 Date 객체로 변환
+    const inputDate = new Date(date);
+    // 한국 시간대로 설정
+    const kstDate = new Date(inputDate.getTime() + (9 * 60 * 60 * 1000));
+    // 시간을 00:00:00으로 설정하여 날짜만 반환
+    return new Date(kstDate.getFullYear(), kstDate.getMonth(), kstDate.getDate());
+}
+
 router.get('/', async (req, res) => {
     const { startDate, endDate } = req.query;
     
@@ -16,7 +26,7 @@ router.get('/', async (req, res) => {
                     i.item_name, 
                     i.item_subname, 
                     i.item_subno, 
-                    ib.date,
+                    ib.date::DATE as date,  -- DATE로 명시적 변환
                     ib.supplier as company,
                     ib.total_quantity,
                     ib.handler_name,
@@ -30,7 +40,9 @@ router.get('/', async (req, res) => {
                 INNER JOIN
                     inbound ib ON i.id = ib.item_id
                 WHERE 1=1
-                ${startDate && endDate ? `AND ib.date BETWEEN $1 AND $2` : `AND ib.date >= (CURRENT_DATE - INTERVAL '6 months')`}
+                ${startDate && endDate ? 
+                    `AND ib.date::DATE BETWEEN $1::DATE AND $2::DATE` : 
+                    `AND ib.date::DATE >= (CURRENT_DATE - INTERVAL '6 months')`}
                 
                 UNION ALL
                 
@@ -42,7 +54,7 @@ router.get('/', async (req, res) => {
                     i.item_name, 
                     i.item_subname, 
                     i.item_subno, 
-                    ob.date,
+                    ob.date::DATE as date,  -- DATE로 명시적 변환
                     ob.client as company,
                     ob.total_quantity,
                     ob.handler_name,
@@ -56,7 +68,9 @@ router.get('/', async (req, res) => {
                 INNER JOIN
                     outbound ob ON i.id = ob.item_id
                 WHERE 1=1
-                ${startDate && endDate ? `AND ob.date BETWEEN $1 AND $2` : `AND ob.date >= (CURRENT_DATE - INTERVAL '6 months')`}
+                ${startDate && endDate ? 
+                    `AND ob.date::DATE BETWEEN $1::DATE AND $2::DATE` : 
+                    `AND ob.date::DATE >= (CURRENT_DATE - INTERVAL '6 months')`}
             )
             SELECT 
                 type,
@@ -81,10 +95,10 @@ router.get('/', async (req, res) => {
                 record_id DESC
         `;
 
-        const params = startDate && endDate ? [startDate, endDate] : [];
-        
-        console.log('Executing query:', query);
-        console.log('Parameters:', params);
+        const params = startDate && endDate ? [
+            toKSTDate(startDate), 
+            toKSTDate(endDate)
+        ] : [];
         
         const result = await db.query(query, params);
         
@@ -93,7 +107,6 @@ router.get('/', async (req, res) => {
         }
         
         const history = result;
-        console.log(`Found ${history.length} records`);
         
         res.json(history);
     } catch (error) {
@@ -499,6 +512,8 @@ router.patch('/inbound/:id', async (req, res) => {
                     SELECT 
                         i.id,
                         i.item_id,
+                        i.warehouse_name as original_warehouse,
+                        i.warehouse_shelf as original_shelf,
                         i.total_quantity as original_quantity,
                         COALESCE(os.total_outbound, 0) as total_outbound,
                         (
@@ -511,6 +526,8 @@ router.patch('/inbound/:id', async (req, res) => {
                     FROM inbound i
                     LEFT JOIN outbound_summary os ON i.item_id = os.item_id
                     LEFT JOIN current_inventory cv ON i.item_id = cv.item_id
+                        AND i.warehouse_name = cv.warehouse_name 
+                        AND i.warehouse_shelf = cv.warehouse_shelf
                     WHERE i.id = $1
                 )
                 SELECT 
@@ -521,7 +538,9 @@ router.patch('/inbound/:id', async (req, res) => {
                     it.item_subno,
                     inv.total_outbound,
                     inv.subsequent_outbound,
-                    inv.current_stock
+                    inv.current_stock,
+                    inv.original_warehouse,
+                    inv.original_shelf
                 FROM inbound i
                 JOIN items it ON i.item_id = it.id
                 JOIN inventory_status inv ON i.id = inv.id
@@ -533,66 +552,115 @@ router.patch('/inbound/:id', async (req, res) => {
             }
 
             const current = currentState.rows[0];
-
-            const oldQuantity = parseInt(current.total_quantity, 10);
-            const newQty = parseInt(newQuantity, 10);
-
-            if (isNaN(newQty)) {
-                throw new Error('유효하지 않은 수량입니다.');
-            }
-
-            const quantityDiff = newQty - oldQuantity;
-
+            
             // 2. 수정 가능 여부 검증
             if (current.description?.includes('[취소됨]')) {
                 throw new Error('취소된 입고 건은 수정할 수 없습니다.');
             }
 
-            if (newQty < current.subsequent_outbound) {
+            if (parsedQuantity < current.subsequent_outbound) {
                 throw new Error(`이 입고 건 이후 발생한 출고 수량(${current.subsequent_outbound})보다 적은 수량으로 수정할 수 없습니다.`);
             }
 
-            if (current.current_stock + quantityDiff < 0) {
-                throw new Error('현재 재고 수량이 부족하여 입고 수량을 수정할 수 없습니다.');
+            const newWarehouseName = warehouse_name || current.warehouse_name;
+            const newWarehouseShelf = warehouse_shelf === undefined ? current.warehouse_shelf : (warehouse_shelf || '');
+
+            // 3. 기존 위치의 재고 제거
+            if ((warehouse_name && warehouse_name !== current.warehouse_name) || 
+                (warehouse_shelf !== undefined && warehouse_shelf !== current.warehouse_shelf)) {
+                await client.query(`
+                    DELETE FROM current_inventory 
+                    WHERE item_id = $1 
+                    AND warehouse_name = $2 
+                    AND warehouse_shelf = $3
+                `, [
+                    current.item_id,
+                    current.warehouse_name,
+                    current.warehouse_shelf
+                ]);
             }
 
-            // 3. 입고 기록 수정
+            // 4. 같은 물품의 다른 입고 기록 찾기 (새로운 위치 기준)
+            const otherInbounds = await client.query(`
+                SELECT SUM(total_quantity) as total_inbound_quantity
+                FROM inbound
+                WHERE item_id = $1
+                AND warehouse_name = $2
+                AND warehouse_shelf = $3
+                AND id != $4
+                AND description NOT LIKE '%[취소됨]%'
+            `, [
+                current.item_id,
+                newWarehouseName,
+                newWarehouseShelf,
+                id
+            ]);
+
+            const otherInboundQuantity = parseInt(otherInbounds.rows[0]?.total_inbound_quantity || 0);
+
+            // 5. 입고 기록 수정
             const updateResult = await client.query(`
                 UPDATE inbound
                 SET
                     total_quantity = $1,
                     description = COALESCE($2, description),
                     warehouse_name = COALESCE($3, warehouse_name),
-                    warehouse_shelf = COALESCE($4, warehouse_shelf),
+                    warehouse_shelf = $4,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = $5
                 RETURNING *
-            `, [newQty, description, warehouse_name, warehouse_shelf, id]);
+            `, [
+                parsedQuantity,
+                description,
+                newWarehouseName,
+                newWarehouseShelf,
+                id
+            ]);
 
-            // 4. 수량이 변경된 경우에만 재고 감사 로그 추가
-            if (quantityDiff !== 0) {
-                await client.query(`
-                    INSERT INTO inventory_audit (
-                        item_id,
-                        operation_type,
-                        quantity_change,
-                        previous_quantity,
-                        new_quantity,
-                        reference_id,
-                        reference_type,
-                        description
-                    ) VALUES ($1, $2, $3::integer, $4::integer, $5::integer, $6, $7, $8)
-                `, [
-                    parseInt(current.item_id, 10),         // item_id를 정수로 변환
-                    'inbound_update',
-                    parseInt(quantityDiff, 10),            // quantity_change를 정수로 변환
-                    parseInt(current.current_stock, 10),    // previous_quantity를 정수로 변환
-                    parseInt(current.current_stock + quantityDiff, 10),  // new_quantity를 정수로 변환
-                    parseInt(id, 10),                      // reference_id를 정수로 변환
-                    'inbound',
-                    '입고 수량 수정'
-                ]);
-            }
+            // 6. current_inventory 업데이트 (기존 수량 + 새 수량)
+            const totalQuantity = parsedQuantity + otherInboundQuantity;
+
+            await client.query(`
+                INSERT INTO current_inventory (
+                    item_id, 
+                    warehouse_name, 
+                    warehouse_shelf, 
+                    current_quantity,
+                    last_updated
+                ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
+                DO UPDATE SET 
+                    current_quantity = $4,
+                    last_updated = CURRENT_TIMESTAMP
+            `, [
+                current.item_id,
+                newWarehouseName,
+                newWarehouseShelf,
+                totalQuantity
+            ]);
+
+            // 7. 재고 감사 로그 추가
+            await client.query(`
+                INSERT INTO inventory_audit (
+                    item_id,
+                    operation_type,
+                    quantity_change,
+                    previous_quantity,
+                    new_quantity,
+                    reference_id,
+                    reference_type,
+                    description
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `, [
+                current.item_id,
+                'inbound_update',
+                parsedQuantity - current.total_quantity,
+                current.total_quantity,
+                totalQuantity,
+                id,
+                'inbound',
+                `입고 수정 (${current.warehouse_name}/${current.warehouse_shelf || ''} → ${newWarehouseName}/${newWarehouseShelf}, 총 수량: ${totalQuantity})`
+            ]);
 
             updatedRecord = {
                 ...updateResult.rows[0],
@@ -600,8 +668,9 @@ router.patch('/inbound/:id', async (req, res) => {
                 manufacturer: current.manufacturer,
                 item_subname: current.item_subname,
                 item_subno: current.item_subno,
-                previous_quantity: current.current_stock,
-                new_quantity: current.current_stock + quantityDiff
+                previous_quantity: current.total_quantity,
+                new_quantity: totalQuantity,
+                other_inbound_quantity: otherInboundQuantity
             };
         });
 

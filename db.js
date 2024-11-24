@@ -129,34 +129,43 @@ async function updateInventory(client, {
 }) {
     // 현재 재고 조회
     const currentInventory = await client.query(
-        `SELECT current_quantity 
+        `SELECT current_quantity, warehouse_name, warehouse_shelf 
          FROM current_inventory 
-         WHERE item_id = $1 
-         AND warehouse_name = $2 
-         AND warehouse_shelf = $3`,
-        [item_id, warehouse_name, warehouse_shelf]
+         WHERE item_id = $1`,
+        [item_id]
     );
 
     const currentQuantity = currentInventory.rows[0]?.current_quantity || 0;
+    const currentWarehouse = currentInventory.rows[0]?.warehouse_name;
+    const currentShelf = currentInventory.rows[0]?.warehouse_shelf;
     const newQuantity = currentQuantity + quantity_change;
 
     if (newQuantity < 0) {
         throw new Error('재고가 부족합니다');
     }
 
+    const finalWarehouse = warehouse_name || currentWarehouse;
+    const finalShelf = warehouse_shelf || currentShelf;
+
     // 재고 업데이트
     await client.query(
         `INSERT INTO current_inventory (
             item_id, warehouse_name, warehouse_shelf, current_quantity, last_updated
         ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-        ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
+        ON CONFLICT (item_id)
         DO UPDATE SET 
+            warehouse_name = $2,
+            warehouse_shelf = $3,
             current_quantity = $4,
             last_updated = CURRENT_TIMESTAMP`,
-        [item_id, warehouse_name, warehouse_shelf, newQuantity]
+        [item_id, finalWarehouse, finalShelf, newQuantity]
     );
 
-    // 감사 로그 추가
+    let logDescription = description;
+    if (finalWarehouse !== currentWarehouse || finalShelf !== currentShelf) {
+        logDescription += ` (위치 변경: ${currentWarehouse}/${currentShelf} → ${finalWarehouse}/${finalShelf})`;
+    }
+
     await client.query(
         `INSERT INTO inventory_audit (
             item_id,
@@ -166,8 +175,10 @@ async function updateInventory(client, {
             new_quantity,
             reference_id,
             reference_type,
-            description
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            description,
+            previous_location,
+            new_location
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
             item_id,
             operation_type,
@@ -175,12 +186,25 @@ async function updateInventory(client, {
             currentQuantity,
             newQuantity,
             reference_id,
-            operation_type.split('_')[0], // inbound or outbound
-            description
+            operation_type.split('_')[0],
+            logDescription,
+            `${currentWarehouse}/${currentShelf}`,
+            `${finalWarehouse}/${finalShelf}`
         ]
     );
 
-    return { currentQuantity, newQuantity };
+    return { 
+        currentQuantity, 
+        newQuantity,
+        previousLocation: {
+            warehouse: currentWarehouse,
+            shelf: currentShelf
+        },
+        newLocation: {
+            warehouse: finalWarehouse,
+            shelf: finalShelf
+        }
+    };
 }
 
 async function runTransaction(callback) {

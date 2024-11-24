@@ -2,13 +2,23 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// 한국 시간대로 날짜를 변환하는 유틸리티 함수
+function toKSTDate(date) {
+    // 날짜 문자열이 들어오면 Date 객체로 변환
+    const inputDate = new Date(date);
+    // 한국 시간대로 설정
+    const kstDate = new Date(inputDate.getTime() + (9 * 60 * 60 * 1000));
+    // 시간을 00:00:00으로 설정하여 날짜만 반환
+    return new Date(kstDate.getFullYear(), kstDate.getMonth(), kstDate.getDate());
+}
+
 router.post('/inbound', async (req, res) => {
     const { 
         manufacturer, 
         item_name, 
         item_subname, 
         item_subno,
-        date, 
+        date,  // 클라이언트에서 받은 날짜
         supplier, 
         total_quantity, 
         handler_name, 
@@ -22,7 +32,8 @@ router.post('/inbound', async (req, res) => {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    console.log('Received inbound data:', { manufacturer, item_name, item_subname, item_subno, date, supplier, total_quantity, handler_name, warehouse_name, warehouse_shelf, description });
+    // 날짜를 한국 시간대로 변환
+    const kstDate = toKSTDate(date);
 
     try {
         await db.runTransaction(async (dbTransaction) => {
@@ -37,8 +48,6 @@ router.post('/inbound', async (req, res) => {
             );
         
             if (!item) {
-                // 품목이 없으면 새로 추가합니다.
-                console.log('Adding new item:', { manufacturer, item_name, item_subname, item_subno });
                 const result = await db.run(
                     'INSERT INTO items (manufacturer, item_name, item_subname, item_subno) VALUES ($1, $2, $3, $4) RETURNING id', 
                     [manufacturer, item_name, item_subname, item_subno]
@@ -46,8 +55,7 @@ router.post('/inbound', async (req, res) => {
                 item = { id: result.id };
             }
 
-            // 입고 트랜잭션 생성
-            console.log('Creating inbound transaction for item:', item.id);
+            // 입고 트랜잭션 생성 - 변환된 KST 날짜 사용
             await db.run(`
                 INSERT INTO inbound (
                     item_id, 
@@ -62,7 +70,7 @@ router.post('/inbound', async (req, res) => {
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             `, [
                 item.id, 
-                date, 
+                kstDate,  // 변환된 KST 날짜 사용
                 supplier, 
                 total_quantity, 
                 handler_name, 
@@ -89,7 +97,7 @@ router.post('/inbound', async (req, res) => {
 router.post('/outbound', async (req, res) => {
     const { 
         item_id, 
-        date, 
+        date,  // 클라이언트에서 받은 날짜
         client, 
         total_quantity, 
         handler_name, 
@@ -97,6 +105,9 @@ router.post('/outbound', async (req, res) => {
         warehouse_shelf, 
         description 
     } = req.body;
+
+    // 날짜를 한국 시간대로 변환
+    const kstDate = toKSTDate(date);
 
     try {
         await db.runTransaction(async (dbTransaction) => {
@@ -109,11 +120,29 @@ router.post('/outbound', async (req, res) => {
                 throw new Error('Insufficient inventory');
             }
 
-            // Create outbound transaction
+            // Create outbound transaction with KST date
             await db.run(`
-                INSERT INTO outbound (item_id, date, client, total_quantity, handler_name, warehouse_name, warehouse_shelf, description)
+                INSERT INTO outbound (
+                    item_id, 
+                    date, 
+                    client, 
+                    total_quantity, 
+                    handler_name, 
+                    warehouse_name, 
+                    warehouse_shelf, 
+                    description
+                )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `, [item_id, date, client, total_quantity, handler_name, warehouse_name, warehouse_shelf, description]);
+            `, [
+                item_id, 
+                kstDate,  // 변환된 KST 날짜 사용
+                client, 
+                total_quantity, 
+                handler_name, 
+                warehouse_name, 
+                warehouse_shelf, 
+                description
+            ]);
         });
 
         res.status(201).json({ message: 'Outbound transaction created successfully' });
