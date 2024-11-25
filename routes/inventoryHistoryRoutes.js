@@ -384,7 +384,9 @@ router.post('/inbound/:id/cancel', async (req, res) => {
                         cv.current_quantity as current_stock
                     FROM inbound i
                     LEFT JOIN outbound_summary o ON i.item_id = o.item_id
-                    LEFT JOIN current_inventory cv ON i.item_id = cv.item_id
+                    LEFT JOIN current_inventory cv ON i.item_id = cv.item_id 
+                        AND i.warehouse_name = cv.warehouse_name 
+                        AND i.warehouse_shelf = cv.warehouse_shelf
                     WHERE i.id = $1
                 )
                 SELECT 
