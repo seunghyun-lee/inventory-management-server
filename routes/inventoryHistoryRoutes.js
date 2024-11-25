@@ -564,25 +564,28 @@ router.patch('/inbound/:id', async (req, res) => {
 
             const newWarehouseName = warehouse_name || current.warehouse_name;
             const newWarehouseShelf = warehouse_shelf === undefined ? current.warehouse_shelf : (warehouse_shelf || '');
+            const locationChanged = (newWarehouseName !== current.warehouse_name) || 
+                                 (newWarehouseShelf !== current.warehouse_shelf);
 
-            // 3. 기존 위치의 재고 제거
-            if ((warehouse_name && warehouse_name !== current.warehouse_name) || 
-                (warehouse_shelf !== undefined && warehouse_shelf !== current.warehouse_shelf)) {
-                await client.query(`
-                    DELETE FROM current_inventory 
-                    WHERE item_id = $1 
-                    AND warehouse_name = $2 
-                    AND warehouse_shelf = $3
-                `, [
-                    current.item_id,
-                    current.warehouse_name,
-                    current.warehouse_shelf
-                ]);
-            }
+            // 3. 기존 위치의 다른 입고 기록들의 수량 계산
+            const otherInboundsOldLocation = await client.query(`
+                SELECT COALESCE(SUM(total_quantity), 0) as total_inbound_quantity
+                FROM inbound
+                WHERE item_id = $1
+                AND warehouse_name = $2
+                AND warehouse_shelf = $3
+                AND id != $4
+                AND description NOT LIKE '%[취소됨]%'
+            `, [
+                current.item_id,
+                current.warehouse_name,
+                current.warehouse_shelf,
+                id
+            ]);
 
-            // 4. 같은 물품의 다른 입고 기록 찾기 (새로운 위치 기준)
-            const otherInbounds = await client.query(`
-                SELECT SUM(total_quantity) as total_inbound_quantity
+            // 4. 새로운 위치의 기존 입고 기록들의 수량 계산
+            const otherInboundsNewLocation = await client.query(`
+                SELECT COALESCE(SUM(total_quantity), 0) as total_inbound_quantity
                 FROM inbound
                 WHERE item_id = $1
                 AND warehouse_name = $2
@@ -595,8 +598,6 @@ router.patch('/inbound/:id', async (req, res) => {
                 newWarehouseShelf,
                 id
             ]);
-
-            const otherInboundQuantity = parseInt(otherInbounds.rows[0]?.total_inbound_quantity || 0);
 
             // 5. 입고 기록 수정
             const updateResult = await client.query(`
@@ -617,8 +618,43 @@ router.patch('/inbound/:id', async (req, res) => {
                 id
             ]);
 
-            // 6. current_inventory 업데이트 (기존 수량 + 새 수량)
-            const totalQuantity = parsedQuantity + otherInboundQuantity;
+            // 6. 기존 위치의 재고 업데이트
+            if (locationChanged && otherInboundsOldLocation.rows[0].total_inbound_quantity > 0) {
+                await client.query(`
+                    INSERT INTO current_inventory (
+                        item_id, 
+                        warehouse_name, 
+                        warehouse_shelf, 
+                        current_quantity,
+                        last_updated
+                    ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                    ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
+                    DO UPDATE SET 
+                        current_quantity = $4,
+                        last_updated = CURRENT_TIMESTAMP
+                `, [
+                    current.item_id,
+                    current.warehouse_name,
+                    current.warehouse_shelf,
+                    otherInboundsOldLocation.rows[0].total_inbound_quantity
+                ]);
+            } else if (locationChanged) {
+                // 기존 위치에 다른 입고 기록이 없으면 해당 위치의 재고 삭제
+                await client.query(`
+                    DELETE FROM current_inventory 
+                    WHERE item_id = $1 
+                    AND warehouse_name = $2 
+                    AND warehouse_shelf = $3
+                `, [
+                    current.item_id,
+                    current.warehouse_name,
+                    current.warehouse_shelf
+                ]);
+            }
+
+            // 7. 새로운 위치의 재고 업데이트
+            const newLocationTotalQuantity = parsedQuantity + 
+                parseInt(otherInboundsNewLocation.rows[0].total_inbound_quantity);
 
             await client.query(`
                 INSERT INTO current_inventory (
@@ -636,10 +672,10 @@ router.patch('/inbound/:id', async (req, res) => {
                 current.item_id,
                 newWarehouseName,
                 newWarehouseShelf,
-                totalQuantity
+                newLocationTotalQuantity
             ]);
 
-            // 7. 재고 감사 로그 추가
+            // 8. 재고 감사 로그 추가
             await client.query(`
                 INSERT INTO inventory_audit (
                     item_id,
@@ -656,10 +692,10 @@ router.patch('/inbound/:id', async (req, res) => {
                 'inbound_update',
                 parsedQuantity - current.total_quantity,
                 current.total_quantity,
-                totalQuantity,
+                newLocationTotalQuantity,
                 id,
                 'inbound',
-                `입고 수정 (${current.warehouse_name}/${current.warehouse_shelf || ''} → ${newWarehouseName}/${newWarehouseShelf}, 총 수량: ${totalQuantity})`
+                `입고 수정 ${locationChanged ? `(위치변경: ${current.warehouse_name}/${current.warehouse_shelf || ''} → ${newWarehouseName}/${newWarehouseShelf})` : ''}`
             ]);
 
             updatedRecord = {
@@ -669,8 +705,10 @@ router.patch('/inbound/:id', async (req, res) => {
                 item_subname: current.item_subname,
                 item_subno: current.item_subno,
                 previous_quantity: current.total_quantity,
-                new_quantity: totalQuantity,
-                other_inbound_quantity: otherInboundQuantity
+                new_quantity: newLocationTotalQuantity,
+                old_location_quantity: parseInt(otherInboundsOldLocation.rows[0].total_inbound_quantity),
+                current_location_quantity: newLocationTotalQuantity,
+                location_changed: locationChanged
             };
         });
 
