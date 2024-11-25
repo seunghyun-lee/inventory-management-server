@@ -371,6 +371,7 @@ router.post('/inbound/:id/cancel', async (req, res) => {
                             SELECT 1 
                             FROM inbound later_inbound 
                             WHERE later_inbound.item_id = i.item_id 
+                            AND later_inbound.description NOT LIKE '%[취소됨]%'
                             AND (later_inbound.date > i.date 
                                 OR (later_inbound.date = i.date AND later_inbound.created_at > i.created_at))
                         ) as has_later_inbound,
