@@ -97,7 +97,8 @@ router.post('/inbound', async (req, res) => {
 router.post('/outbound', async (req, res) => {
     const { 
         item_id, 
-        date,  // 클라이언트에서 받은 날짜
+        inventory_id,
+        date,
         client, 
         total_quantity, 
         handler_name, 
@@ -112,12 +113,12 @@ router.post('/outbound', async (req, res) => {
     try {
         await db.runTransaction(async (dbTransaction) => {
             // Check current inventory
-            const currentInventory = await db.get('SELECT * FROM current_inventory WHERE item_id = $1', [item_id]);
+            const currentInventory = await db.get('SELECT * FROM current_inventory WHERE item_id = $1', [inventory_id]);
             if (!currentInventory) {
-                throw new Error('Item not found in inventory');
+                throw new Error('해당 위치의 재고를 찾을 수 없습니다');
             }
             if (currentInventory.current_quantity < total_quantity) {
-                throw new Error('Insufficient inventory');
+                throw new Error('재고가 부족합니다');
             }
 
             // Create outbound transaction with KST date
@@ -134,18 +135,18 @@ router.post('/outbound', async (req, res) => {
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             `, [
-                item_id, 
-                kstDate,  // 변환된 KST 날짜 사용
+                currentInventory.item_id,
+                kstDate,
                 client, 
                 total_quantity, 
                 handler_name, 
-                warehouse_name, 
-                warehouse_shelf, 
+                currentInventory.warehouse_name,
+                currentInventory.warehouse_shelf, 
                 description
             ]);
         });
 
-        res.status(201).json({ message: 'Outbound transaction created successfully' });
+        res.status(201).json({ message: '출고가 성공적으로 처리되었습니다' });
     } catch (error) {
         console.error('Error in outbound transaction:', error);
         res.status(500).json({ error: error.message });

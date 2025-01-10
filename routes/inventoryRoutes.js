@@ -7,19 +7,15 @@ router.get('/', async (req, res) => {
         // 재고 현황 조회
         const inventory = await db.all(`
             SELECT 
-                i.id,
+                i.id as item_id,
+                ci.id as inventory_id,
                 i.manufacturer,
                 i.item_name,
                 i.item_subname,
                 i.item_subno,
                 ci.warehouse_name,
                 ci.warehouse_shelf,
-                ci.current_quantity,
-                EXISTS(
-                    SELECT 1 
-                    FROM outbound ob 
-                    WHERE ob.item_id = i.id
-                ) as has_outbound_history
+                ci.current_quantity
             FROM 
                 items i
             INNER JOIN 
@@ -69,31 +65,32 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
     try {
-        const item = await db.get(`
+        const inventory = await db.get(`
             SELECT 
-                i.id, 
-                i.manufacturer, 
+                ci.id as inventory_id,
+                i.id as item_id,
+                i.manufacturer,
                 i.item_name,
                 i.item_subname,
                 i.item_subno,
-                ci.current_quantity,
                 ci.warehouse_name,
-                ci.warehouse_shelf
+                ci.warehouse_shelf,
+                ci.current_quantity
             FROM 
-                items i
-            LEFT JOIN 
-                current_inventory ci ON i.id = ci.item_id
-            WHERE
-                i.id = $1
-            `, [req.params.id]);
+                current_inventory ci
+            INNER JOIN 
+                items i ON ci.item_id = i.id
+            WHERE 
+                ci.id = $1
+        `, [req.params.id]);
 
-        if (!item) {
-            return res.status(404).json({ message: 'Item not found' });
+        if (!inventory) {
+            return res.status(404).json({ message: '재고를 찾을 수 없습니다' });
         }
 
-        res.json(item);
+        res.json(inventory);
     } catch (error) {
-        console.error('Error fetching item details:', error);
+        console.error('Error fetching inventory details:', error);
         res.status(500).json({ error: error.message });
     }
 });
