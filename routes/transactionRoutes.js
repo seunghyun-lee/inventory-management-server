@@ -96,8 +96,7 @@ router.post('/inbound', async (req, res) => {
 
 router.post('/outbound', async (req, res) => {
     const { 
-        item_id, 
-        inventory_id,
+        inventory_id, // current_inventory의 id
         date,
         client, 
         total_quantity, 
@@ -107,13 +106,14 @@ router.post('/outbound', async (req, res) => {
         description 
     } = req.body;
 
-    // 날짜를 한국 시간대로 변환
-    const kstDate = toKSTDate(date);
-
     try {
         await db.runTransaction(async (dbTransaction) => {
-            // Check current inventory
-            const currentInventory = await db.get('SELECT * FROM current_inventory WHERE item_id = $1', [inventory_id]);
+            // current_inventory id로 직접 조회
+            const currentInventory = await db.get(
+                'SELECT * FROM current_inventory WHERE id = $1',
+                [inventory_id]
+            );
+
             if (!currentInventory) {
                 throw new Error('해당 위치의 재고를 찾을 수 없습니다');
             }
@@ -121,11 +121,11 @@ router.post('/outbound', async (req, res) => {
                 throw new Error('재고가 부족합니다');
             }
 
-            // Create outbound transaction with KST date
+            // 출고 트랜잭션 생성
             await db.run(`
                 INSERT INTO outbound (
-                    item_id, 
-                    date, 
+                    item_id,
+                    date,
                     client, 
                     total_quantity, 
                     handler_name, 
@@ -135,13 +135,13 @@ router.post('/outbound', async (req, res) => {
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             `, [
-                currentInventory.item_id,
-                kstDate,
+                currentInventory.item_id, // current_inventory에서 가져온 item_id 사용
+                date,
                 client, 
                 total_quantity, 
                 handler_name, 
-                currentInventory.warehouse_name,
-                currentInventory.warehouse_shelf, 
+                warehouse_name,
+                warehouse_shelf, 
                 description
             ]);
         });
