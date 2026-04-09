@@ -512,7 +512,7 @@ router.patch('/inbound/:id', async (req, res) => {
                     GROUP BY o.item_id
                 ),
                 inventory_status AS (
-                    SELECT 
+                    SELECT
                         i.id,
                         i.item_id,
                         i.warehouse_name as original_warehouse,
@@ -523,13 +523,15 @@ router.patch('/inbound/:id', async (req, res) => {
                             SELECT COALESCE(SUM(ob.total_quantity), 0)
                             FROM outbound ob
                             WHERE ob.item_id = i.item_id
+                            AND ob.warehouse_name = i.warehouse_name
+                            AND ob.warehouse_shelf IS NOT DISTINCT FROM i.warehouse_shelf
                             AND ob.created_at > i.created_at
                         ) as subsequent_outbound,
                         cv.current_quantity as current_stock
                     FROM inbound i
                     LEFT JOIN outbound_summary os ON i.item_id = os.item_id
                     LEFT JOIN current_inventory cv ON i.item_id = cv.item_id
-                        AND i.warehouse_name = cv.warehouse_name 
+                        AND i.warehouse_name = cv.warehouse_name
                         AND i.warehouse_shelf = cv.warehouse_shelf
                     WHERE i.id = $1
                 )
@@ -602,6 +604,32 @@ router.patch('/inbound/:id', async (req, res) => {
                 id
             ]);
 
+            // 4-1. 기존 위치의 출고 수량 계산
+            const outboundsOldLocation = await client.query(`
+                SELECT COALESCE(SUM(total_quantity), 0) as total_outbound_quantity
+                FROM outbound
+                WHERE item_id = $1
+                AND warehouse_name = $2
+                AND warehouse_shelf IS NOT DISTINCT FROM $3
+            `, [
+                current.item_id,
+                current.warehouse_name,
+                current.warehouse_shelf || null
+            ]);
+
+            // 4-2. 새로운 위치의 출고 수량 계산
+            const outboundsNewLocation = await client.query(`
+                SELECT COALESCE(SUM(total_quantity), 0) as total_outbound_quantity
+                FROM outbound
+                WHERE item_id = $1
+                AND warehouse_name = $2
+                AND warehouse_shelf IS NOT DISTINCT FROM $3
+            `, [
+                current.item_id,
+                newWarehouseName,
+                newWarehouseShelf || null
+            ]);
+
             // 5. 입고 기록 수정
             const updateResult = await client.query(`
                 UPDATE inbound
@@ -622,42 +650,52 @@ router.patch('/inbound/:id', async (req, res) => {
             ]);
 
             // 6. 기존 위치의 재고 업데이트
-            if (locationChanged && otherInboundsOldLocation.rows[0].total_inbound_quantity > 0) {
-                await client.query(`
-                    INSERT INTO current_inventory (
-                        item_id, 
-                        warehouse_name, 
-                        warehouse_shelf, 
-                        current_quantity,
-                        last_updated
-                    ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-                    ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
-                    DO UPDATE SET 
-                        current_quantity = $4,
-                        last_updated = CURRENT_TIMESTAMP
-                `, [
-                    current.item_id,
-                    current.warehouse_name,
-                    current.warehouse_shelf,
-                    otherInboundsOldLocation.rows[0].total_inbound_quantity
-                ]);
-            } else if (locationChanged) {
-                // 기존 위치에 다른 입고 기록이 없으면 해당 위치의 재고 삭제
-                await client.query(`
-                    DELETE FROM current_inventory 
-                    WHERE item_id = $1 
-                    AND warehouse_name = $2 
-                    AND warehouse_shelf = $3
-                `, [
-                    current.item_id,
-                    current.warehouse_name,
-                    current.warehouse_shelf
-                ]);
+            if (locationChanged) {
+                const oldLocationBalance = Math.max(0,
+                    parseInt(otherInboundsOldLocation.rows[0].total_inbound_quantity) -
+                    parseInt(outboundsOldLocation.rows[0].total_outbound_quantity)
+                );
+
+                if (oldLocationBalance > 0) {
+                    await client.query(`
+                        INSERT INTO current_inventory (
+                            item_id,
+                            warehouse_name,
+                            warehouse_shelf,
+                            current_quantity,
+                            last_updated
+                        ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                        ON CONFLICT (item_id, warehouse_name, warehouse_shelf)
+                        DO UPDATE SET
+                            current_quantity = $4,
+                            last_updated = CURRENT_TIMESTAMP
+                    `, [
+                        current.item_id,
+                        current.warehouse_name,
+                        current.warehouse_shelf,
+                        oldLocationBalance
+                    ]);
+                } else {
+                    // 기존 위치에 남은 재고가 없으면 해당 위치의 재고 삭제
+                    await client.query(`
+                        DELETE FROM current_inventory
+                        WHERE item_id = $1
+                        AND warehouse_name = $2
+                        AND warehouse_shelf IS NOT DISTINCT FROM $3
+                    `, [
+                        current.item_id,
+                        current.warehouse_name,
+                        current.warehouse_shelf || null
+                    ]);
+                }
             }
 
             // 7. 새로운 위치의 재고 업데이트
-            const newLocationTotalQuantity = parsedQuantity + 
-                parseInt(otherInboundsNewLocation.rows[0].total_inbound_quantity);
+            const newLocationTotalQuantity = Math.max(0,
+                parsedQuantity +
+                parseInt(otherInboundsNewLocation.rows[0].total_inbound_quantity) -
+                parseInt(outboundsNewLocation.rows[0].total_outbound_quantity)
+            );
 
             await client.query(`
                 INSERT INTO current_inventory (
